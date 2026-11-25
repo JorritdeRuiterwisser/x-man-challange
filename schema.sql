@@ -60,9 +60,13 @@ create table if not exists public.goals (
   name        text not null check (char_length(btrim(name)) between 1 and 80),
   kind        text not null check (kind in ('tijd', 'gewicht', 'aantal', 'frequentie')),
   better      text not null check (better in ('lager', 'hoger')),
+  unit        text not null default '' check (char_length(unit) <= 12),
   start_value double precision not null,
   targets     double precision[] not null check (array_length(targets, 1) = 4)
 );
+
+-- Bestaande database bijwerken (veilig om opnieuw uit te voeren)
+alter table public.goals add column if not exists unit text not null default '' check (char_length(unit) <= 12);
 
 create index if not exists goals_member_idx on public.goals (member_id);
 
@@ -79,10 +83,14 @@ create table if not exists public.measurements (
   member_id  uuid not null references public.members (id) on delete cascade,
   goal_id    uuid not null references public.goals (id) on delete cascade,
   day        date not null,
-  value      double precision not null check (value > 0 and value <= 1000000),
+  value      double precision not null check (value >= 0 and value <= 1000000),
   updated_at timestamptz not null default now(),
   primary key (goal_id, day)
 );
+
+-- 0 is een geldige meting (bijvoorbeeld 0 pull-ups als startwaarde)
+alter table public.measurements drop constraint if exists measurements_value_check;
+alter table public.measurements add constraint measurements_value_check check (value >= 0 and value <= 1000000);
 
 create index if not exists measurements_member_idx on public.measurements (member_id, day);
 
@@ -212,7 +220,7 @@ begin
       select jsonb_agg(
         jsonb_build_object(
           'id', g.id, 'member_id', g.member_id, 'name', g.name,
-          'kind', g.kind, 'better', g.better,
+          'kind', g.kind, 'better', g.better, 'unit', g.unit,
           'start', g.start_value, 'targets', to_jsonb(g.targets))
         order by g.member_id, g.position, g.id)
       from public.goals g), '[]'::jsonb),
@@ -287,7 +295,7 @@ begin
         delete from public.measurements where goal_id = v_goal.id and day = p_day;
       else
         v_val := (kv.value #>> '{}')::double precision;
-        if v_val is null or v_val <= 0 or v_val > 1000000 then
+        if v_val is null or v_val < 0 or v_val > 1000000 then
           raise exception 'Ongeldige meting' using errcode = '22023';
         end if;
         insert into public.measurements (member_id, goal_id, day, value, updated_at)
@@ -425,7 +433,7 @@ $$;
 
 -- Doelen van een deelnemer opslaan. p_goals is een lijst met objecten:
 --   {"id": "<bestaand doel-id of weglaten>", "name": "5 km hardlopen",
---    "kind": "tijd|gewicht|aantal|frequentie", "better": "lager|hoger",
+--    "kind": "tijd|gewicht|aantal|frequentie", "better": "lager|hoger", "unit": "kg",
 --    "start": 1800, "targets": [1560, 1530, 1515, 1499]}
 -- Doelen die niet meer in de lijst staan, worden verwijderd (inclusief de
 -- bijbehorende metingen).
@@ -469,14 +477,15 @@ begin
          set name = btrim(g ->> 'name'),
              kind = g ->> 'kind',
              better = g ->> 'better',
+             unit = coalesce(btrim(g ->> 'unit'), ''),
              start_value = (g ->> 'start')::double precision,
              targets = t,
              position = pos
        where id = gid;
     else
-      insert into public.goals (member_id, position, name, kind, better, start_value, targets)
+      insert into public.goals (member_id, position, name, kind, better, unit, start_value, targets)
       values (p_member_id, pos, btrim(g ->> 'name'), g ->> 'kind', g ->> 'better',
-              (g ->> 'start')::double precision, t)
+              coalesce(btrim(g ->> 'unit'), ''), (g ->> 'start')::double precision, t)
       returning id into gid;
     end if;
     keep := keep || gid;

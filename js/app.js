@@ -198,7 +198,7 @@ function fillableDays() {
 
 function measureFields(prefix, goals, values) {
   return goals.filter((g) => g.kind !== 'frequentie').map((g) => `
-    <div class="field"><label>${esc(g.name)}</label>
+    <div class="field"><label>${esc(g.name)}${g.kind === 'gewicht' || g.kind === 'aantal' ? (g.unit ? ' (' + esc(g.unit) + ')' : '') : ''}</label>
     <input type="text" inputmode="${g.kind === 'tijd' ? 'text' : 'decimal'}" placeholder="${L.KINDS[g.kind].placeholder}" value="${esc(values[g.id] ?? '')}" data-bind="${prefix}.${g.id}">
     <small>${L.KINDS[g.kind].hint}. Leeg laten als je het niet gemeten hebt.</small></div>`).join('');
 }
@@ -302,15 +302,15 @@ function viewProfile() {
   <section class="card"><h3>Doelen</h3>
     ${goals.length === 0 ? '<p class="empty">De beheerder heeft nog geen doelen ingesteld.</p>' : goals.map((g) => {
       const now = L.goalCurrent(g, state.snap, t);
-      const f = (i) => L.formatValue(g.kind, g.targets[i]) + (g.kind === 'gewicht' ? ' kg' : '');
+      const f = (i) => L.fmt(g, g.targets[i]);
       return `<div style="margin-top:14px"><b>${esc(g.name)}</b> <span class="muted small">(${g.better === 'lager' ? 'lager' : 'hoger'} is beter)</span>
       <div class="tablewrap"><table><tr><th>Start</th><th>Nu</th>${L.MILESTONE_LABELS.map((l, i) => `<th class="${i === cur ? 'cur' : ''}">${l}<br><span style="text-transform:none;letter-spacing:0">${L.fmtShort(ms[i]).replace(/^\w+ /, '')}</span></th>`).join('')}</tr>
-      <tr><td>${L.formatValue(g.kind, g.start)}</td><td><b>${now === null ? '–' : L.formatValue(g.kind, now)}</b></td>${[0, 1, 2, 3].map((i) => `<td class="${i === cur ? 'cur' : ''}">${f(i)}</td>`).join('')}</tr></table></div></div>`;
+      <tr><td>${L.fmt(g, g.start)}</td><td><b>${now === null ? '–' : L.fmt(g, now)}</b></td>${[0, 1, 2, 3].map((i) => `<td class="${i === cur ? 'cur' : ''}">${f(i)}</td>`).join('')}</tr></table></div></div>`;
     }).join('')}
   </section>
   <section class="card"><h3>Logboek</h3>
     <div class="list">${log.map((e) => {
-      const ks = state.snap.measurements.filter((k) => k.member_id === m.id && k.day === e.day).map((k) => { const g = goalById.get(k.goal_id); return g ? `${esc(g.name)} ${L.formatValue(g.kind, k.value)}` : ''; }).filter(Boolean);
+      const ks = state.snap.measurements.filter((k) => k.member_id === m.id && k.day === e.day).map((k) => { const g = goalById.get(k.goal_id); return g ? `${esc(g.name)} ${L.fmt(g, k.value)}` : ''; }).filter(Boolean);
       return `<div class="li"><div class="grow"><b>${L.fmtShort(e.day)}</b> · ${e.status === 'done' ? 'Getraind' : 'Rustdag'}${e.feel ? ` · gevoel ${e.feel}` : ''}${ks.length ? `<br><span class="small muted">${ks.join(' · ')}</span>` : ''}</div>
       ${own ? `<button class="btn sm" data-act="edit" data-v="${e.day}">Wijzig</button>` : ''}</div>`;
     }).join('') || '<p class="empty">Nog niets ingevuld.</p>'}</div>
@@ -352,12 +352,12 @@ function viewAdmin() {
 }
 
 function blankGoal() {
-  return { id: '', name: '', kind: 'tijd', better: 'lager', start: '', targets: ['', '', '', ''] };
+  return { id: '', name: '', kind: 'tijd', better: 'lager', unit: '', start: '', targets: ['', '', '', ''] };
 }
 
 function openGoalEditor(memberId) {
   const goals = goalsOf(memberId).map((g) => ({
-    id: g.id, name: g.name, kind: g.kind, better: g.better,
+    id: g.id, name: g.name, kind: g.kind, better: g.better, unit: g.unit || '',
     start: L.formatValue(g.kind, g.start), targets: g.targets.map((x) => L.formatValue(g.kind, x)),
   }));
   state.admin.editing = { memberId, goals };
@@ -377,12 +377,14 @@ function viewGoalEditor() {
         <div class="field" style="margin-top:0"><label>Naam van het doel</label><input type="text" data-bind="admin.editing.goals.${i}.name" value="${esc(g.name)}" placeholder="bijv. 5 km hardlopen" maxlength="80"></div>
         <div class="field" style="margin-top:0"><label>Soort</label><select data-bind="admin.editing.goals.${i}.kind" data-rerender="1">${Object.entries(L.KINDS).map(([k, v]) => `<option value="${k}" ${g.kind === k ? 'selected' : ''}>${v.label}</option>`).join('')}</select></div>
       </div>
+      ${L.KINDS[g.kind].hasUnit ? `<div class="field"><label>Eenheid</label><input type="text" list="units" maxlength="12" data-bind="admin.editing.goals.${i}.unit" value="${esc(g.unit)}" placeholder="kg, %, cm, herhalingen, …"><small>Typ zelf een eenheid of kies er een. Leeg laten mag ook.</small></div>` : ''}
       <div class="g2"><div class="field"><label>Wat is beter?</label><select data-bind="admin.editing.goals.${i}.better"><option value="lager" ${g.better === 'lager' ? 'selected' : ''}>Lager (tijd, gewicht kwijt)</option><option value="hoger" ${g.better === 'hoger' ? 'selected' : ''}>Hoger (meer kilo's, herhalingen)</option></select></div>
         <div class="field"><label>Startwaarde</label><input type="text" data-bind="admin.editing.goals.${i}.start" value="${esc(g.start)}" placeholder="${L.KINDS[g.kind].placeholder}"></div></div>
       <div class="field"><label>Doelen per tussenstap</label><div class="g4">${[0, 1, 2, 3].map((j) => `<div><small>${L.MILESTONE_LABELS[j]} (${L.fmtShort(ms[j]).replace(/^\w+ /, '')})</small><input type="text" data-bind="admin.editing.goals.${i}.targets.${j}" value="${esc(g.targets[j])}" placeholder="${L.KINDS[g.kind].placeholder}"></div>`).join('')}</div>
       <small>${L.KINDS[g.kind].hint}</small></div>
       <button class="btn sm danger" style="margin-top:10px" data-act="rmGoal" data-i="${i}">Doel verwijderen</button>
     </div>`).join('')}
+    <datalist id="units">${['kg', '%', 'cm', 'km', 'm', 'minuten', 'herhalingen', 'kcal', 'stappen', 'liter'].map((u) => `<option value="${u}">`).join('')}</datalist>
     <div class="row" style="margin-top:16px"><button class="btn lime" data-act="addGoal">+ Doel toevoegen</button><button class="btn pri" data-act="saveGoals">Doelen opslaan</button></div>
   </section>`;
 }
@@ -526,7 +528,7 @@ const actions = {
       const targets = g.targets.map((t) => L.parseValue(g.kind, t));
       if (start === null || Number.isNaN(start)) return toast(`${label}: startwaarde klopt niet`, true);
       if (targets.some((t) => t === null || Number.isNaN(t))) return toast(`${label}: vul alle vier de doelen in`, true);
-      out.push({ id: g.id || null, name: g.name.trim(), kind: g.kind, better: g.better, start, targets });
+      out.push({ id: g.id || null, name: g.name.trim(), kind: g.kind, better: g.better, unit: L.KINDS[g.kind].hasUnit ? g.unit.trim() : '', start, targets });
     }
     if (await call('xm_admin_save_goals', { p_member_id: ed.memberId, p_goals: out }, 'Doelen opgeslagen')) {
       state.admin.editing = null; await refresh();
@@ -561,6 +563,12 @@ document.addEventListener('change', (ev) => {
   const el = ev.target;
   if (el.dataset && el.dataset.bind && el.tagName === 'SELECT') {
     setPath(el.dataset.bind, el.value);
+    const km = /^(admin\.editing\.goals\.\d+)\.kind$/.exec(el.dataset.bind);
+    if (km) {
+      const g = state.admin.editing.goals[+km[1].split('.').pop()];
+      if (g.kind === 'gewicht' && !g.unit) g.unit = 'kg';
+      if (g.kind === 'tijd') g.better = 'lager';
+    }
     if (el.dataset.rerender) render();
   }
 });

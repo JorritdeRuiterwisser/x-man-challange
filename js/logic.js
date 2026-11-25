@@ -127,8 +127,8 @@ export function lastFillableDay(settings, todayISO) {
 
 export const KINDS = {
   tijd: { label: 'Tijd', hint: 'minuten:seconden, bijvoorbeeld 26:00', placeholder: '26:00' },
-  gewicht: { label: 'Lichaamsgewicht', hint: 'kilo, bijvoorbeeld 77,0', placeholder: '77,0' },
-  aantal: { label: 'Aantal of gewicht', hint: 'herhalingen of kilo, bijvoorbeeld 10', placeholder: '10' },
+  gewicht: { label: 'Getal met eenheid (bijv. kg, %)', hint: 'een getal, bijvoorbeeld 77,5', placeholder: '77,5', hasUnit: true },
+  aantal: { label: 'Aantal of ander getal', hint: 'een getal, bijvoorbeeld 10', placeholder: '10', hasUnit: true },
   frequentie: { label: 'Keer per week', hint: 'trainingen per week, bijvoorbeeld 4', placeholder: '4' },
 };
 
@@ -155,7 +155,7 @@ export function parseValue(kind, text) {
     return total > 0 ? total : NaN;
   }
   const n = Number(t.replace(',', '.'));
-  return Number.isFinite(n) && n > 0 ? n : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : NaN; // 0 is toegestaan
 }
 
 export function formatValue(kind, n) {
@@ -173,10 +173,16 @@ export function formatValue(kind, n) {
   return Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ',');
 }
 
-export function unitSuffix(kind) {
-  if (kind === 'gewicht') return ' kg';
-  if (kind === 'frequentie') return '× per week';
-  return '';
+// Eenheid achter een waarde, bijvoorbeeld " kg" of "× per week"
+export function unitText(goal) {
+  if (goal.kind === 'frequentie') return '× per week';
+  if (goal.kind === 'tijd') return '';
+  return goal.unit ? ' ' + goal.unit : '';
+}
+
+// Waarde met eenheid, bijvoorbeeld "81,4 kg"
+export function fmt(goal, n) {
+  return formatValue(goal.kind, n) + unitText(goal);
 }
 
 // ---------------------------------------------------------------- voortgang
@@ -339,7 +345,7 @@ export function buildBoard(snapshot, todayISO) {
     const extra = now.perGoal.length - 1;
     let goalText = 'Nog geen doelen';
     if (first) {
-      goalText = first.goal.name + ': ' + formatValue(first.goal.kind, first.target) + unitSuffix(first.goal.kind);
+      goalText = first.goal.name + ': ' + fmt(first.goal, first.target);
       if (extra > 0) goalText += ` (+${extra} ${extra === 1 ? 'doel' : 'doelen'})`;
     }
     const today = snapshot.entries.find((e) => e.member_id === member.id && e.day === todayISO) || null;
@@ -385,7 +391,7 @@ export function recentActivity(snapshot, limit = 8) {
     for (const k of snapshot.measurements) {
       if (k.member_id === e.member_id && k.day === e.day) {
         const g = goalById.get(k.goal_id);
-        if (g) parts.push(g.name + ' ' + formatValue(g.kind, k.value) + unitSuffix(g.kind));
+        if (g) parts.push(g.name + ' ' + fmt(g, k.value));
       }
     }
     const m = byId.get(e.member_id);

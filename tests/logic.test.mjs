@@ -95,3 +95,14 @@ t('weekraster', () => {
   assert.equal(w[5], 0); assert.equal(w[6], null);
 });
 console.log(`\n${n} testgroepen geslaagd`);
+t('nul en eenheden', () => {
+  assert.equal(L.parseValue('aantal', '0'), 0);
+  assert.equal(L.parseValue('gewicht', '0,0'), 0);
+  assert.ok(Number.isNaN(L.parseValue('tijd', '0:00')));
+  assert.ok(Number.isNaN(L.parseValue('aantal', '-1')));
+  assert.equal(L.fmt({ kind: 'gewicht', unit: '%' }, 18.5), '18,5 %');
+  assert.equal(L.fmt({ kind: 'gewicht', unit: 'kg' }, 81), '81,0 kg');
+  assert.equal(L.fmt({ kind: 'aantal', unit: '' }, 0), '0');
+  assert.equal(L.fmt({ kind: 'frequentie' }, 4), '4× per week');
+  assert.equal(L.fractionToTarget(0, 10, 5, 'hoger'), 0.5);
+});
