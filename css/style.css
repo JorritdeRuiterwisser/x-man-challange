@@ -123,5 +123,5 @@ td.cur,th.cur{background:#F1FBD0;font-weight:600}
 #toast.show{opacity:1;transform:translateX(-50%)}
 #toast.err{background:var(--bad)}
 
-.login{max-width:520px;margin:10vh auto;padding:0 16px}
+.login{max-width:520px;width:calc(100% - 32px);margin:6vh auto}
 .empty{color:var(--muted);padding:12px 0}

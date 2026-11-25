@@ -5,6 +5,7 @@ const $app = document.getElementById('app');
 const $toast = document.getElementById('toast');
 
 const state = {
+  loginText: '',
   snap: null, token: '', view: 'home', sort: 'pct', profileId: null,
   day: null, draft: null, week: null, bf: null,
   admin: null, modal: null, error: '', busy: false,
@@ -100,6 +101,9 @@ function renderLogin() {
     <p>Je logt in met je persoonlijke link. Die heb je van de beheerder gekregen.</p>
     <p>Open die link op deze telefoon of computer; daarna onthoudt de site je.</p>
     ${state.error ? `<p style="color:var(--bad);font-weight:600">${esc(state.error)}</p>` : ''}
+    <div class="field"><label>Zit je in de app op je beginscherm? Plak hier je persoonlijke link of code</label>
+      <input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://…#t=… of alleen de code" data-bind="loginText" value="${esc(state.loginText || '')}">
+      <button class="btn pri" data-act="login">Inloggen</button></div>
     <p class="muted small">Link kwijt? Vraag de beheerder om een nieuwe.</p></div>`;
 }
 
@@ -435,6 +439,15 @@ function go(view) {
 
 // ------------------------------------------------------------ acties
 const actions = {
+  login() {
+    const m = /(?:[#&]t=)?([0-9a-fA-F]{20,})\s*$/.exec((state.loginText || '').trim());
+    if (!m) { state.error = 'Dat lijkt geen geldige link of code. Kopieer de hele link nog eens.'; return renderLogin(); }
+    setToken(m[1]);
+    state.token = m[1];
+    state.error = '';
+    state.loginText = '';
+    load();
+  },
   nav(el) { if (el.dataset.v === 'profile') state.profileId = me().id; go(el.dataset.v); },
   sort(el) { state.sort = el.dataset.v; render(); },
   profile(el) { state.profileId = el.dataset.id; state.view = 'profile'; render(); window.scrollTo(0, 0); },
