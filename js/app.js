@@ -6,6 +6,7 @@ const $toast = document.getElementById('toast');
 
 const state = {
   loginText: '',
+  openStory: null,
   snap: null, token: '', view: 'home', sort: 'pct', profileId: null,
   day: null, draft: null, week: null, bf: null,
   admin: null, modal: null, error: '', busy: false,
@@ -81,7 +82,7 @@ async function refresh() {
 // ------------------------------------------------------------ pagina's
 function layout(content) {
   const m = me();
-  const nav = [['home', 'Overzicht'], ['checkin', 'Check-in'], ['profile', 'Mijn doelen']];
+  const nav = [['home', 'Overzicht'], ['checkin', 'Check-in'], ['stories', 'Strijdverhalen'], ['profile', 'Mijn doelen']];
   return `
   <header class="top"><div class="top-in">
     <div class="brand"><div class="logo">X</div>${esc(S().site_name)}</div>
@@ -105,6 +106,17 @@ function renderLogin() {
       <input type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://…#t=… of alleen de code" data-bind="loginText" value="${esc(state.loginText || '')}">
       <button class="btn pri" data-act="login">Inloggen</button></div>
     <p class="muted small">Link kwijt? Vraag de beheerder om een nieuwe.</p></div>`;
+}
+
+function teaser() {
+  const items = L.recentStories(state.snap, 3);
+  const newest = items[0] ? items[0].created_at : null;
+  return `<section class="card teaser"><h3>Nieuwste strijdverhalen</h3>
+    <div class="list">${items.map((st, i) => `<button class="tease" data-act="openStoryFromHome" data-k="${esc(storyKey(st))}">
+      <span class="avatar sm">${initial(st.name)}</span>
+      <span class="grow"><b>${esc(st.title)}</b><span class="small muted" style="display:block">${esc(st.name)} · ${L.fmtShort(st.day)}</span><span class="small tease-pre">${esc(String(st.body).split(/\n+/)[0])}</span></span>
+      ${i === 0 && newest && (Date.now() - new Date(newest).getTime()) < 36 * 3600 * 1000 ? '<span class="chip done">Nieuw</span>' : ''}</button>`).join('') || '<p class="empty">Nog geen strijdverhalen. Schrijf de eerste bij je check-in.</p>'}</div>
+    <button class="btn" style="margin-top:12px;width:100%" data-act="nav" data-v="stories">Alle strijdverhalen →</button></section>`;
 }
 
 function viewHome() {
@@ -170,6 +182,7 @@ function viewHome() {
         </div>
         <button class="btn lime" style="margin-top:14px;width:100%" data-act="nav" data-v="checkin">Zelf inchecken</button>
       </section>
+      ${teaser()}
       <section class="card"><h3>Laatste activiteit</h3>
         <div class="list">${feed.map((f) => `<div><b>${esc(f.name)}</b> <span class="muted small">${L.fmtShort(f.day)}</span><br><span class="small">${esc(f.text)}</span></div>`).join('') || '<p class="empty">Nog niets ingevuld.</p>'}</div>
       </section>
@@ -186,7 +199,8 @@ function draftFor(day, memberId) {
     const k = state.snap.measurements.find((x) => x.goal_id === g.id && x.day === day);
     values[g.id] = k ? L.formatValue(g.kind, k.value) : '';
   }
-  return { status: e ? e.status : null, feel: e ? e.feel : null, values };
+  const st = L.findStory(state.snap, memberId, day);
+  return { status: e ? e.status : null, feel: e ? e.feel : null, values, story: { title: st ? st.title : '', body: st ? st.body : '', open: !!st } };
 }
 
 function fillableDays() {
@@ -222,11 +236,50 @@ function viewCheckin() {
     <div class="seg"><button data-act="status" data-v="done" class="${d.status === 'done' ? 'on' : ''}">Getraind</button><button data-act="status" data-v="rest" class="${d.status === 'rest' ? 'on' : ''}">Rustdag</button></div>
     ${measureFields('draft.values', goalsOf(id), d.values)}
     <div class="field"><label>Hoe voelde het?</label><div class="feel">${[1, 2, 3, 4, 5].map((n) => `<button data-act="feel" data-v="${n}" class="${d.feel === n ? 'on' : ''}">${n}</button>`).join('')}</div><small>1 = zwaar, 5 = top (niet verplicht)</small></div>
+    ${storyBox(d.story)}
     <button class="btn pri" style="width:100%;margin-top:18px" data-act="saveDay">Opslaan</button>
     ${has(state.day) ? `<button class="btn" style="width:100%;margin-top:8px" data-act="clearDay">Deze dag leegmaken</button>` : ''}
     <p style="margin:16px 0 0"><a href="#" data-act="nav" data-v="backfill">Een dag van eerder invullen →</a></p>
   </section>`;
 }
+
+function storyBox(st) {
+  const chev = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex:none;transition:transform .2s;transform:rotate(${st.open ? 180 : 0}deg)"><path d="M6 9l6 6 6-6"/></svg>`;
+  const pen = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
+  return `<button class="story-toggle" data-act="toggleStory" aria-expanded="${st.open}">${pen}<span class="grow"><b>Schrijf een strijdverhaal</b><span>Niet verplicht. Iedereen kan het lezen.</span></span>${chev}</button>
+  ${st.open ? `<div class="story-form">
+    <div class="field" style="margin-top:0"><label for="stitle">Titel</label><input id="stitle" type="text" maxlength="${L.STORY_MAX_TITLE}" placeholder="Bijvoorbeeld: Mijn eerste 5 km onder de 27" data-bind="draft.story.title" value="${esc(st.title)}"></div>
+    <div class="field"><label for="sbody">Jouw verhaal</label><textarea id="sbody" rows="6" maxlength="${L.STORY_MAX_BODY}" placeholder="Hoe ging het? Wat viel op? Wat wil je delen met de groep?" data-bind="draft.story.body">${esc(st.body)}</textarea></div>
+    <div class="row small muted" style="margin-top:6px"><span>Zichtbaar voor iedereen in de challenge</span><span id="scount">${st.body.length} / ${L.STORY_MAX_BODY}</span></div>
+    <p class="small muted" style="margin:6px 0 0">Titel en tekst allebei leeg laten en opslaan verwijdert je strijdverhaal van deze dag.</p>
+  </div>` : ''}`;
+}
+
+// ---- strijdverhalen lezen
+function viewStories() {
+  const list = L.recentStories(state.snap);
+  if (state.openStory === null && list.length) state.openStory = storyKey(list[0]);
+  return `
+  <section class="card" style="max-width:640px;width:100%;margin:0 auto">
+    <div class="eyebrow">Van iedereen</div><h2 style="font-size:30px;margin-top:2px">Strijdverhalen</h2>
+    <p class="muted small" style="margin:4px 0 0">Schrijf er zelf een bij je check-in. Tik op een verhaal om het te lezen.</p>
+  </section>
+  ${list.length === 0 ? '<section class="card" style="max-width:640px;width:100%;margin:0 auto"><p class="empty">Nog geen strijdverhalen. Schrijf de eerste bij je check-in.</p></section>' : ''}
+  ${list.map((st) => {
+    const key = storyKey(st), open = state.openStory === key, own = st.member_id === me().id;
+    const paras = String(st.body).split(/\n+/).map((x) => x.trim()).filter(Boolean);
+    return `<article class="card story" style="max-width:640px;width:100%;margin:0 auto">
+      <div class="li"><span class="avatar sm">${initial(st.name)}</span><div class="grow"><b>${esc(st.name)}</b><div class="small muted">${L.fmtShort(st.day)} · week ${L.weekNumber(S(), st.day)}</div></div></div>
+      <h3 style="font-size:19px;margin-top:12px">${esc(st.title)}</h3>
+      ${open ? `<div class="story-body">${paras.map((x) => `<p>${esc(x)}</p>`).join('')}</div>` : `<p class="story-preview">${esc(paras[0] || '')}</p>`}
+      <div class="row" style="justify-content:flex-start;margin-top:12px;gap:8px">
+        <button class="pill" aria-expanded="${open}" data-act="openStory" data-k="${esc(key)}">${open ? 'Inklappen' : 'Lees verder'}</button>
+        ${own ? `<button class="btn sm" data-act="edit" data-v="${st.day}">Wijzig</button>` : ''}
+      </div></article>`;
+  }).join('')}`;
+}
+
+function storyKey(st) { return st.member_id + '|' + st.day; }
 
 // ---- eerdere weken
 function weekDays(w) {
@@ -415,14 +468,15 @@ function render() {
   if (!state.admin) {
     state.admin = { start: L.isoToDMY(S().start_date), end: L.isoToDMY(S().end_date), siteName: S().site_name, newName: '', editing: null };
   }
-  const views = { home: viewHome, checkin: viewCheckin, backfill: viewBackfill, profile: viewProfile, admin: viewAdmin };
+  const views = { home: viewHome, stories: viewStories, checkin: viewCheckin, backfill: viewBackfill, profile: viewProfile, admin: viewAdmin };
   const v = state.view === 'admin' && !isAdmin() ? 'home' : state.view;
   const scroll = window.scrollY;
   $app.innerHTML = layout(views[v]());
   window.scrollTo(0, scroll);
   for (const sel of ['.days .on', '.tabs .on']) {
     const el = $app.querySelector(sel);
-    if (el && el.parentElement) el.parentElement.scrollLeft = el.offsetLeft - el.parentElement.clientWidth / 2 + el.clientWidth / 2;
+    const box = el && el.parentElement;
+    if (box) box.scrollLeft += el.getBoundingClientRect().left - box.getBoundingClientRect().left - (box.clientWidth - el.clientWidth) / 2;
   }
 }
 
@@ -430,6 +484,7 @@ function go(view) {
   state.view = view;
   state.modal = null;
   if (view === 'checkin') { state.day = null; state.draft = null; }
+  if (view === 'stories' && state.view !== 'stories') { /* behoud gekozen verhaal */ }
   if (view === 'backfill') { state.bf = null; }
   if (view === 'profile') state.profileId = state.profileId || me().id;
   if (view === 'admin') { state.admin = null; }
@@ -439,6 +494,9 @@ function go(view) {
 
 // ------------------------------------------------------------ acties
 const actions = {
+  toggleStory() { state.draft.story.open = !state.draft.story.open; render(); },
+  openStory(el) { state.openStory = state.openStory === el.dataset.k ? '' : el.dataset.k; render(); },
+  openStoryFromHome(el) { state.openStory = el.dataset.k; go('stories'); },
   login() {
     const m = /(?:[#&]t=)?([0-9a-fA-F]{20,})\s*$/.exec((state.loginText || '').trim());
     if (!m) { state.error = 'Dat lijkt geen geldige link of code. Kopieer de hele link nog eens.'; return renderLogin(); }
@@ -460,7 +518,15 @@ const actions = {
     const r = collectValues(goalsOf(me().id), state.draft.values);
     if (r.error) return toast(r.error, true);
     if (!state.draft.status && Object.values(r.values).some((v) => v !== null)) return toast('Kies eerst getraind of rustdag', true);
-    const ok = await call('xm_save_day', { p_day: state.day, p_status: state.draft.status, p_feel: state.draft.feel, p_values: r.values }, 'Opgeslagen');
+    const stDraft = state.draft.story;
+    const had = !!L.findStory(state.snap, me().id, state.day);
+    const wants = stDraft.title.trim() || stDraft.body.trim();
+    if (wants && (!stDraft.title.trim() || !stDraft.body.trim())) return toast('Een strijdverhaal heeft een titel én een tekst nodig', true);
+    const ok = await call('xm_save_day', { p_day: state.day, p_status: state.draft.status, p_feel: state.draft.feel, p_values: r.values }, wants || had ? null : 'Opgeslagen');
+    if (ok && (wants || had)) {
+      const ok2 = await call('xm_save_story', { p_day: state.day, p_title: stDraft.title, p_body: stDraft.body }, 'Opgeslagen');
+      if (!ok2) { await refresh(); return; }
+    }
     if (ok) { await refresh(); state.draft = draftFor(state.day, me().id); render(); }
   },
   async clearDay() {
@@ -570,7 +636,10 @@ document.addEventListener('click', (ev) => {
 
 document.addEventListener('input', (ev) => {
   const el = ev.target;
-  if (el.dataset && el.dataset.bind && el.tagName === 'INPUT') setPath(el.dataset.bind, el.value);
+  if (el.dataset && el.dataset.bind && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) {
+    setPath(el.dataset.bind, el.value);
+    if (el.id === 'sbody') { const c = document.getElementById('scount'); if (c) c.textContent = el.value.length + ' / ' + L.STORY_MAX_BODY; }
+  }
 });
 document.addEventListener('change', (ev) => {
   const el = ev.target;

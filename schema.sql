@@ -94,14 +94,28 @@ alter table public.measurements add constraint measurements_value_check check (v
 
 create index if not exists measurements_member_idx on public.measurements (member_id, day);
 
+-- Strijdverhalen: een korte tekst bij de check-in van een dag, leesbaar voor iedereen.
+create table if not exists public.stories (
+  member_id  uuid not null references public.members (id) on delete cascade,
+  day        date not null,
+  title      text not null check (char_length(btrim(title)) between 1 and 80),
+  body       text not null check (char_length(btrim(body)) between 1 and 1500),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (member_id, day)
+);
+
+create index if not exists stories_created_idx on public.stories (created_at desc);
+
 -- Tabellen op slot: geen enkele regel, dus geen directe toegang.
 alter table public.settings     enable row level security;
 alter table public.members      enable row level security;
 alter table public.goals        enable row level security;
 alter table public.entries      enable row level security;
 alter table public.measurements enable row level security;
+alter table public.stories      enable row level security;
 
-revoke all on public.settings, public.members, public.goals, public.entries, public.measurements
+revoke all on public.settings, public.members, public.goals, public.entries, public.measurements, public.stories
   from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------
@@ -235,7 +249,14 @@ begin
         jsonb_build_object(
           'member_id', k.member_id, 'goal_id', k.goal_id,
           'day', k.day, 'value', k.value))
-      from public.measurements k), '[]'::jsonb)
+      from public.measurements k), '[]'::jsonb),
+    'stories', coalesce((
+      select jsonb_agg(
+        jsonb_build_object(
+          'member_id', t.member_id, 'day', t.day, 'title', t.title,
+          'body', t.body, 'created_at', t.created_at)
+        order by t.created_at desc)
+      from (select * from public.stories order by created_at desc limit 60) t), '[]'::jsonb)
   );
 end;
 $$;
@@ -305,6 +326,58 @@ begin
       end if;
     end loop;
   end if;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+-- Een strijdverhaal bij een dag opslaan of aanpassen (alleen je eigen).
+-- Titel en tekst allebei leeg = het verhaal van die dag verwijderen.
+create or replace function public.xm_save_story(
+  p_token text,
+  p_day   date,
+  p_title text,
+  p_body  text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions
+as $$
+declare
+  m       public.members;
+  s       public.settings;
+  v_title text := btrim(coalesce(p_title, ''));
+  v_body  text := btrim(coalesce(p_body, ''));
+begin
+  m := app_private.require_member(p_token);
+  select * into s from public.settings where id = 1;
+
+  if p_day is null
+     or p_day < s.start_date
+     or p_day > least(s.end_date, app_private.today()) then
+    raise exception 'Deze dag kan niet worden ingevuld' using errcode = '22023';
+  end if;
+
+  if v_title = '' and v_body = '' then
+    delete from public.stories where member_id = m.id and day = p_day;
+    return jsonb_build_object('ok', true, 'deleted', true);
+  end if;
+
+  if v_title = '' then
+    raise exception 'Geef je strijdverhaal een titel' using errcode = '22023';
+  end if;
+  if v_body = '' then
+    raise exception 'Schrijf ook een tekst bij je titel' using errcode = '22023';
+  end if;
+  if char_length(v_title) > 80 or char_length(v_body) > 1500 then
+    raise exception 'Je strijdverhaal is te lang' using errcode = '22023';
+  end if;
+
+  insert into public.stories (member_id, day, title, body)
+  values (m.id, p_day, v_title, v_body)
+  on conflict (member_id, day) do update
+    set title = excluded.title, body = excluded.body, updated_at = now();
 
   return jsonb_build_object('ok', true);
 end;
@@ -529,6 +602,7 @@ $$;
 revoke all on function public.xm_me(text)                                   from public;
 revoke all on function public.xm_snapshot(text)                             from public;
 revoke all on function public.xm_save_day(text, date, text, int, jsonb)     from public;
+revoke all on function public.xm_save_story(text, date, text, text)         from public;
 revoke all on function public.xm_admin_add_member(text, text)               from public;
 revoke all on function public.xm_admin_reset_token(text, uuid)              from public;
 revoke all on function public.xm_admin_rename_member(text, uuid, text)      from public;
@@ -540,6 +614,7 @@ revoke all on function public.xm_admin_set_settings(text, date, date, text) from
 grant execute on function public.xm_me(text)                                   to anon, authenticated;
 grant execute on function public.xm_snapshot(text)                             to anon, authenticated;
 grant execute on function public.xm_save_day(text, date, text, int, jsonb)     to anon, authenticated;
+grant execute on function public.xm_save_story(text, date, text, text)         to anon, authenticated;
 grant execute on function public.xm_admin_add_member(text, text)               to anon, authenticated;
 grant execute on function public.xm_admin_reset_token(text, uuid)              to anon, authenticated;
 grant execute on function public.xm_admin_rename_member(text, uuid, text)      to anon, authenticated;

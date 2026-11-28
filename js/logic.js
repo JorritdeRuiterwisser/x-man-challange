@@ -398,3 +398,22 @@ export function recentActivity(snapshot, limit = 8) {
     return { name: m ? m.name : '?', day: e.day, text: parts.join(' · '), updated_at: e.updated_at };
   });
 }
+
+// ---------------------------------------------------------------- strijdverhalen
+
+export const STORY_MAX_TITLE = 80;
+export const STORY_MAX_BODY = 1500;
+
+// Nieuwste strijdverhalen eerst, met de naam van de schrijver erbij.
+export function recentStories(snapshot, limit = 60) {
+  const byId = new Map(snapshot.members.map((m) => [m.id, m]));
+  return (snapshot.stories || [])
+    .slice()
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .slice(0, limit)
+    .map((st) => ({ ...st, name: byId.has(st.member_id) ? byId.get(st.member_id).name : '?' }));
+}
+
+export function findStory(snapshot, memberId, dayISO) {
+  return (snapshot.stories || []).find((x) => x.member_id === memberId && x.day === dayISO) || null;
+}

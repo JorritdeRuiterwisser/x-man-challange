@@ -106,3 +106,13 @@ t('nul en eenheden', () => {
   assert.equal(L.fmt({ kind: 'frequentie' }, 4), '4× per week');
   assert.equal(L.fractionToTarget(0, 10, 5, 'hoger'), 0.5);
 });
+t('strijdverhalen', () => {
+  const sn = { members: [{ id: 'a', name: 'Anna' }], stories: [
+    { member_id: 'a', day: '2026-11-20', title: 'Oud', body: 'x', created_at: '2026-11-20T10:00:00Z' },
+    { member_id: 'a', day: '2026-11-25', title: 'Nieuw', body: 'y', created_at: '2026-11-25T10:00:00Z' }] };
+  const r = L.recentStories(sn);
+  assert.equal(r[0].title, 'Nieuw'); assert.equal(r[0].name, 'Anna');
+  assert.equal(L.findStory(sn, 'a', '2026-11-20').title, 'Oud');
+  assert.equal(L.findStory(sn, 'a', '2026-11-21'), null);
+  assert.deepEqual(L.recentStories({ members: [] }), []);
+});
